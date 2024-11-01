@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, Controller } from "react-hook-form";
 import {
@@ -8,404 +9,211 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import axios from "axios";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { z } from "zod";
 
-type Country = {
-  name: string;
-  code: string;
-};
-
-type State = {
-  name: string;
-  code: string;
-};
-
-type CourseInfo = {
-  name: string;
-  fullPayment: number;
-  monthlyPayment: number;
-  description: string;
-};
-
-// Course information
-export const coursesInfo: Record<string, CourseInfo> = {
-  "Blockchain Cybersecurity": {
-    name: "Blockchain Cybersecurity",
-    fullPayment: 100,
-    monthlyPayment: 75,
-    description: "Learn to secure blockchain systems and smart contracts.",
-  },
-  "Technical Writing": {
-    name: "Technical Writing",
-    fullPayment: 150,
-    monthlyPayment: 105,
-    description:
-      "Master the art of writing clear and concise technical documentation.",
-  },
-  "Smart Contract Auditing": {
-    name: "Smart Contract Auditing",
-    fullPayment: 120,
-    monthlyPayment: 80,
-    description:
-      "Gain skills to audit and secure smart contracts on various blockchain platforms.",
-  },
-  "Zero Knowledge Proofs": {
-    name: "Zero Knowledge Proofs",
-    fullPayment: 110,
-    monthlyPayment: 60,
-    description:
-      "Explore the fascinating world of cryptographic zero-knowledge proofs.",
-  },
-  "Product Design": {
-    name: "Product Design",
-    fullPayment: 140,
-    monthlyPayment: 80,
-    description: "Learn to create user-centered designs for digital products.",
-  },
-  Marketing: {
-    name: "Marketing",
-    fullPayment: 140,
-    monthlyPayment: 80,
-    description:
-      "Develop strategies for effective digital marketing campaigns.",
-  },
-};
-
-// Data for dropdowns
-const ageRanges = ["18-24", "25-34", "35-44", "45+"] as const;
-const cohorts = [
-  "January 2025",
-  "April 2025",
-  "July 2025",
-  "October 2025",
-] as const;
-
-// const courses = Object.keys(coursesInfo);
-const courses = [
-  "Blockchain Cybersecurity",
-  "Technical Writing",
-  "Smart Contract Auditing",
-  "Zero Knowledge Proofs",
-  "Product Design",
-  "Marketing",
-] as const;
-
-const referralSources = [
-  "AIESEC Ghana",
-  "Social Media",
-  "Friend Referral",
-  "Online Ad",
-] as const;
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // Zod schema
-const schema = z.object({
-  fullName: z.string().min(2, { message: "Full Name is required" }),
-  email: z.string().email({ message: "Invalid email address" }),
-  phoneNumber: z.string().min(10, { message: "Phone Number is required" }),
-  ageRange: z.enum(ageRanges),
-  country: z.string().min(1, { message: "Please select a country" }),
-  state: z.string().min(1, { message: "Please select a state" }),
-  courseOfInterest: z.enum(courses),
-  cohort: z.enum(cohorts),
-  referralSource: z.enum(referralSources),
-  paymentPlan: z.enum(["Full Payment", "Monthly Payment"]),
-  paymentMethod: z.enum(["Credit card", "Bank Transfer", "Crypto"]),
+const courseSchema = z.object({
+  name: z.string().min(1, "Course name is required"),
+  startDate: z.string().min(1, "Start date is required"),
+  duration: z.string().min(1, "Duration is required"),
+  cohort: z.string().min(1, "Cohort is required"),
+  links: z.object({
+    resourceLink: z.string().url("Invalid resource link"),
+    communityLink: z.string().url("Invalid community link"),
+    platformName: z.string().min(1, "Platform name is required"),
+    platformLink: z.string().url("Invalid platform link"),
+  }),
+  price: z.object({
+    USD: z.string().min(1, "USD price is required"),
+    NGN: z.string().min(1, "NGN price is required"),
+  }),
+  recurrentPrice: z.object({
+    USD: z.string().min(1, "Recurrent USD price is required"),
+    NGN: z.string().min(1, "Recurrent NGN price is required"),
+    frequency: z.number().min(1, "Frequency is required"),
+  }),
 });
+
+type CourseFormData = z.infer<typeof courseSchema>;
 
 export default function Home() {
   const {
     control,
     handleSubmit,
-    watch,
-    formState: { errors },
-  } = useForm<z.infer<typeof schema>>({
-    resolver: zodResolver(schema),
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<z.infer<typeof courseSchema>>({
+    resolver: zodResolver(courseSchema),
     defaultValues: {
-      fullName: "",
-      email: "",
-      phoneNumber: "",
-      ageRange: "18-24",
-      country: "",
-      state: "",
-      courseOfInterest: courses[0],
-      cohort: "January 2025",
-      referralSource: "Social Media",
-      paymentPlan: "Full Payment",
-      paymentMethod: "Credit card",
+      name: "",
+      startDate: "",
+      duration: "",
+      cohort: "",
+      links: {
+        resourceLink: "",
+        communityLink: "",
+        platformName: "",
+        platformLink: "",
+      },
+      price: {
+        USD: "",
+        NGN: "",
+      },
+      recurrentPrice: {
+        USD: "",
+        NGN: "",
+        frequency: 2,
+      },
     },
   });
 
-  const fetchCountries = async (): Promise<Country[]> => {
-    const response = await axios.get("https://restcountries.com/v3.1/all");
-    return response.data
-      .map((country: any) => ({
-        name: country.name.common,
-        code: country.cca2,
-      }))
-      .sort((a: Country, b: Country) => a.name.localeCompare(b.name));
-  };
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [dialogMessage, setDialogMessage] = useState("");
 
-  const fetchStates = async (countryCode: string): Promise<State[]> => {
-    const response = await axios.get(
-      `https://api.countrystatecity.in/v1/countries/${countryCode}/states`,
-      {
-        headers: {
-          "X-CSCAPI-KEY": process.env.NEXT_PUBLIC_API_KEY,
-        },
-      }
-    );
-    return response.data.map((state: any) => ({
-      name: state.name,
-      code: state.iso2 || state.name,
-    }));
-  };
-
-  const watchCountry = watch("country");
-
-  // Fetch countries
-  const { data: countries, isLoading: isLoadingCountries } = useQuery({
-    queryKey: ["getCountries"],
-    queryFn: fetchCountries,
+  const { mutate } = useMutation({
+    mutationFn: async (values: z.infer<typeof courseSchema>) => {
+      return axios.post(`${process.env.NEXT_PUBLIC_BASE_URL}/course`, values);
+    },
+    mutationKey: ["create"],
+    onSuccess: () => {
+      setDialogMessage("New Course Added Successfully!");
+      setIsDialogOpen(true);
+      reset();
+    },
+    onError: (error) => {
+      console.error("Error submiting form", error);
+      setDialogMessage(`Failed to add course: ${error.message}`);
+      setIsDialogOpen(true);
+    },
   });
 
-  // this function gets triggered when the value of the country changes. This is so because we are "watching" for changes in the country state.
-  const { data: states, isLoading: isLoadingStates } = useQuery({
-    queryKey: ["getStates", watchCountry],
-    queryFn: () => fetchStates(watchCountry),
-    enabled: !!watchCountry,
-  });
+  const onSubmit = async (data: CourseFormData) => {
+    try {
+      console.log("Form submission started");
+      console.log("Form data:", data);
+      mutate(data);
+    } catch (error) {
+      console.error("Form submission error:", error);
+    }
+  };
 
-  const onSubmit = (values: z.infer<typeof schema>) => {
-    console.log(values);
+  const onError = (errors: unknown) => {
+    console.error("Form validation errors:", errors);
   };
 
   return (
     <div className="items-center justify-items-center min-h-screen bg-[#010115] py-10 text-white gap-16 font-[family-name:var(--font-geist-sans)]">
       <div className="max-w-2xl mx-auto">
-        <form onSubmit={handleSubmit(onSubmit)} className="items-start">
+        <form
+          onSubmit={handleSubmit(onSubmit, onError)}
+          className="items-start"
+        >
           <div className="bg-[#080821] border border-[#232323] py-10">
             <h1 className="text-3xl font-medium px-10 mb-10">Upload Couse</h1>
 
-            <div className="px-10  space-y-6">
+            <div className="px-10 space-y-6">
+              {/* Course Name */}
               <div className="space-y-2">
-                <label
-                  htmlFor="fullName"
-                  className="font-medium text-2xl block"
-                >
-                  Full Name*
+                <label htmlFor="name" className="font-medium text-2xl block">
+                  Course Name*
                 </label>
                 <Controller
-                  name="fullName"
+                  name="name"
                   control={control}
                   render={({ field }) => (
                     <Input
                       {...field}
-                      placeholder="Full Name"
-                      id="fullName"
+                      placeholder="Course Name"
+                      id="name"
                       className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
                     />
                   )}
                 />
-                {errors.fullName && (
-                  <p className="text-red-500">{errors.fullName.message}</p>
+                {errors.name && (
+                  <p className="text-red-500">{errors.name.message}</p>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <label htmlFor="email" className="font-medium text-2xl block">
-                  Email*
-                </label>
-                <Controller
-                  name="email"
-                  control={control}
-                  render={({ field }) => (
-                    <Input
-                      {...field}
-                      placeholder="example@gmail.com"
-                      id="email"
-                      className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
-                    />
+              {/* Dates and Duration */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="startDate"
+                    className="font-medium text-2xl block"
+                  >
+                    Start Date*
+                  </label>
+                  <Controller
+                    name="startDate"
+                    control={control}
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        type="date"
+                        id="startDate"
+                        className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                      />
+                    )}
+                  />
+                  {errors.startDate && (
+                    <p className="text-red-500">{errors.startDate.message}</p>
                   )}
-                />
-                {errors.email && (
-                  <p className="text-red-500">{errors.email.message}</p>
-                )}
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="duration"
+                    className="font-medium text-2xl block"
+                  >
+                    Duration*
+                  </label>
+                  <Controller
+                    name="duration"
+                    control={control}
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        placeholder="e.g., 2 months"
+                        id="duration"
+                        className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                      />
+                    )}
+                  />
+                  {errors.duration && (
+                    <p className="text-red-500">{errors.duration.message}</p>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <label
-                  htmlFor="phoneNumber"
-                  className="font-medium text-2xl block"
-                >
-                  Phone Number*
-                </label>
-                <Controller
-                  name="phoneNumber"
-                  control={control}
-                  render={({ field }) => (
-                    <Input
-                      {...field}
-                      placeholder="Phone number"
-                      id="phoneNumber"
-                      className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
-                    />
-                  )}
-                />
-                {errors.phoneNumber && (
-                  <p className="text-red-500">{errors.phoneNumber.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label
-                  htmlFor="ageRange"
-                  className="font-medium text-2xl block"
-                >
-                  Age Ranges*
-                </label>
-                <Controller
-                  name="ageRange"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="Select your age range" />
-                      </SelectTrigger>
-                      <SelectContent className="border-[#454545] text-[#454545] w-full rounded-[8px] py-4">
-                        {ageRanges.map((range) => (
-                          <SelectItem key={range} value={range}>
-                            {range}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.ageRange && (
-                  <p className="text-red-500">{errors.ageRange.message}</p>
-                )}
-              </div>
-
-              <div className="flex space-x-4">
-                <Controller
-                  name="country"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="Select your country" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {isLoadingCountries ? (
-                          <SelectItem value="loading">
-                            Loading countries...
-                          </SelectItem>
-                        ) : (
-                          countries?.map((country) => (
-                            <SelectItem key={country.code} value={country.name}>
-                              {country.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-
-                <Controller
-                  name="state"
-                  control={control}
-                  render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="State" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {isLoadingStates ? (
-                          <SelectItem value="loading">
-                            Loading states...
-                          </SelectItem>
-                        ) : (
-                          states?.map((state) => (
-                            <SelectItem key={state.code} value={state.name}>
-                              {state.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-
+              {/* Cohorts */}
               <div className="space-y-2">
                 <label
-                  htmlFor="courseOfInterest"
+                  htmlFor="duration"
                   className="font-medium text-2xl block"
                 >
-                  Course of interest*
-                </label>
-                <Controller
-                  name="courseOfInterest"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="Select your course of interest" />
-                      </SelectTrigger>
-                      <SelectContent className="border-[#454545] text-[#454545] w-full rounded-[8px] py-4">
-                        {courses.map((course) => (
-                          <SelectItem key={course} value={course}>
-                            {course}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.courseOfInterest && (
-                  <p className="text-red-500">
-                    {errors.courseOfInterest.message}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="cohort" className="font-medium text-2xl block">
-                  Cohort (Start Month)*
+                  Cohort*
                 </label>
                 <Controller
                   name="cohort"
                   control={control}
                   render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="Select your Cohort" />
-                      </SelectTrigger>
-                      <SelectContent className="border-[#454545] text-[#454545] w-full rounded-[8px] py-4">
-                        {cohorts.map((cohort) => (
-                          <SelectItem key={cohort} value={cohort}>
-                            {cohort}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      {...field}
+                      placeholder="e.g., December(2024)"
+                      id="duration"
+                      className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                    />
                   )}
                 />
                 {errors.cohort && (
@@ -413,134 +221,283 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <label
-                  htmlFor="referralSource"
-                  className="font-medium text-2xl block"
-                >
-                  Where did you find us*
-                </label>
-                <Controller
-                  name="referralSource"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
+              {/* Links */}
+              <div className="space-y-6">
+                <h2 className="font-medium text-2xl">Course Links</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label htmlFor="resourceLink" className="font-medium block">
+                      Resource Link*
+                    </label>
+                    <Controller
+                      name="links.resourceLink"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="https://example.com/resources"
+                          id="resourceLink"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.links?.resourceLink && (
+                      <p className="text-red-500">
+                        {errors.links.resourceLink.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="communityLink"
+                      className="font-medium block"
                     >
-                      <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
-                        <SelectValue placeholder="Where did you find us" />
-                      </SelectTrigger>
-                      <SelectContent className="border-[#454545] text-[#454545] w-full rounded-[8px] py-4">
-                        {referralSources.map((source) => (
-                          <SelectItem key={source} value={source}>
-                            {source}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.referralSource && (
-                  <p className="text-red-500">
-                    {errors.referralSource.message}
-                  </p>
-                )}
+                      Community Link*
+                    </label>
+                    <Controller
+                      name="links.communityLink"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="https://chat.whatsapp.com/..."
+                          id="communityLink"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.links?.communityLink && (
+                      <p className="text-red-500">
+                        {errors.links.communityLink.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="platformName" className="font-medium block">
+                      Platform Name*
+                    </label>
+                    <Controller
+                      name="links.platformName"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="e.g., Discord"
+                          id="platformName"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.links?.platformName && (
+                      <p className="text-red-500">
+                        {errors.links.platformName.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="platformLink" className="font-medium block">
+                      Platform Link*
+                    </label>
+                    <Controller
+                      name="links.platformLink"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="https://discord.gg/..."
+                          id="platformLink"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.links?.platformLink && (
+                      <p className="text-red-500">
+                        {errors.links.platformLink.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <label
-                  htmlFor="referralSource"
-                  className="font-medium text-2xl block"
-                >
-                  Payment Plan*
-                </label>
-                <Controller
-                  name="paymentPlan"
-                  control={control}
-                  render={({ field }) => (
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="grid-cols-2"
+              {/* Pricing */}
+              <div className="space-y-6">
+                <h2 className="font-medium text-2xl">Pricing</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label htmlFor="priceUSD" className="font-medium block">
+                      Price (USD)*
+                    </label>
+                    <Controller
+                      name="price.USD"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="500"
+                          id="priceUSD"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.price?.USD && (
+                      <p className="text-red-500">{errors.price.USD.message}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="priceNGN" className="font-medium block">
+                      Price (NGN)*
+                    </label>
+                    <Controller
+                      name="price.NGN"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="350000"
+                          id="priceNGN"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
+                        />
+                      )}
+                    />
+                    {errors.price?.NGN && (
+                      <p className="text-red-500">{errors.price.NGN.message}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recurrent Price */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="recurrentPriceUSD"
+                      className="font-medium block"
                     >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem
-                          value="Full Payment"
-                          id="full-payment"
+                      Recurrent Price (USD)*
+                    </label>
+                    <Controller
+                      name="recurrentPrice.USD"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="500"
+                          id="recurrentPriceUSD"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
                         />
-                        <label htmlFor="full-payment" className="text-white">
-                          Full Payment
-                        </label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem
-                          value="Monthly Payment"
-                          id="monthly-payment"
+                      )}
+                    />
+                    {errors.recurrentPrice?.USD && (
+                      <p className="text-red-500">
+                        {errors.recurrentPrice.USD.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="recurrentPriceNGN"
+                      className="font-medium block"
+                    >
+                      Recurrent Price (NGN)*
+                    </label>
+                    <Controller
+                      name="recurrentPrice.NGN"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          {...field}
+                          placeholder="350000"
+                          id="recurrentPriceNGN"
+                          className="border border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14"
                         />
-                        <label htmlFor="monthly-payment" className="text-white">
-                          Monthly Payment
-                        </label>
-                      </div>
-                    </RadioGroup>
-                  )}
-                />
-                {errors.paymentPlan && (
-                  <p className="text-red-500">{errors.paymentPlan.message}</p>
-                )}
+                      )}
+                    />
+                    {errors.recurrentPrice?.NGN && (
+                      <p className="text-red-500">
+                        {errors.recurrentPrice.NGN.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="frequency" className="font-medium block">
+                      Payment Frequency*
+                    </label>
+                    <Controller
+                      name="recurrentPrice.frequency"
+                      control={control}
+                      render={({ field: { onChange, value } }) => (
+                        <Select
+                          onValueChange={(val) => onChange(parseInt(val))}
+                          defaultValue={value?.toString()}
+                        >
+                          <SelectTrigger className="border-[#454545] placeholder:text-[#454545] bg-transparent w-full rounded-[8px] py-4 px-6 h-14">
+                            <SelectValue placeholder="Select frequency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Once</SelectItem>
+                            <SelectItem value="2">Twice</SelectItem>
+                            <SelectItem value="3">Thrice</SelectItem>
+                            <SelectItem value="4">Four times</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {errors.recurrentPrice?.frequency && (
+                      <p className="text-red-500">
+                        {errors.recurrentPrice.frequency.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="py-10">
-              <hr className="border-[#454545]" />
-            </div>
+              <div className="pt-6">
+                <button
+                  type="submit"
+                  className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Submitting..." : "Submit Course"}
+                </button>
+              </div>
 
-            <div className="space-y-2 px-10">
-              <label
-                htmlFor="referralSource"
-                className="font-medium text-2xl block mb-10"
-              >
-                Payment method*
-              </label>
-              <Controller
-                name="paymentMethod"
-                control={control}
-                render={({ field }) => (
-                  <RadioGroup
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                    className="gap-y-6"
-                  >
-                    <div className="flex justify-between bg-[#232323] items-center space-x-2 py-4 rounded-[8px] px-6">
-                      <label htmlFor="credit-card" className="text-white">
-                        Credit card
-                      </label>
-                      <RadioGroupItem value="Credit card" id="credit-card" />
-                    </div>
-                    <div className="flex items-center justify-between bg-[#232323] space-x-2 py-4 rounded-[8px] px-6">
-                      <label htmlFor="bank-transfer" className="text-white">
-                        Bank Transfer
-                      </label>
-                      <RadioGroupItem
-                        value="Bank Transfer"
-                        id="bank-transfer"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between bg-[#232323] space-x-2 py-4 rounded-[8px] px-6">
-                      <label htmlFor="crypto" className="text-white">
-                        Crypto
-                      </label>
-                      <RadioGroupItem value="Crypto" id="crypto" />
-                    </div>
-                  </RadioGroup>
-                )}
-              />
-              {errors.paymentMethod && (
-                <p className="text-red-500">{errors.paymentMethod.message}</p>
-              )}
+              {/* {process.env.NODE_ENV === "development" && (
+                <div className="mt-4 p-4 bg-gray-800 rounded-lg">
+                  <p>Form State:</p>
+                  <pre className="text-xs">
+                    {JSON.stringify(
+                      {
+                        isSubmitting,
+                        isValid,
+                        errorCount: Object.keys(errors).length,
+                      },
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+              )} */}
             </div>
           </div>
         </form>
+      </div>
+
+      <div className="px-4 sm:px-6">
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="bg-[#010115] px-4 border-none">
+            <DialogTitle></DialogTitle>
+            <DialogHeader className="mt-6">
+              <DialogDescription className="!text-white">
+                {dialogMessage}
+              </DialogDescription>
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
